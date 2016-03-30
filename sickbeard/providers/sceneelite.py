@@ -106,8 +106,9 @@ class SceneEliteProvider(TorrentProvider):  # pylint: disable=too-many-instance-
                 results = []
                 search_params["searchText"] = search_string
                 search_url = self.urls["search"]
-                jdata = self.get_url(search_url, params=search_params, returns="json")         
-                if not jdata:
+                try:
+                    jdata = self.get_url(search_url, params=search_params, returns="json") 
+                except:
                     logger.log("No data returned from provider", logger.DEBUG)
                     continue
                 for torrent in jdata:

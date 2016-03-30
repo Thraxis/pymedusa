@@ -45,6 +45,7 @@ class SceneEliteProvider(TorrentProvider):  # pylint: disable=too-many-instance-
         # Torrent Stats
         self.minseed = None
         self.minleech = None
+        self.freeleech = None
 
         # URLs
         self.url = "https://sceneelite.org/"
@@ -89,9 +90,9 @@ class SceneEliteProvider(TorrentProvider):  # pylint: disable=too-many-instance-
             "order": 'asc',
             "page": 'search',
             "sort": 'n',
-            "categories[]": 3,
-            "categories[]": 6,
-            "categories[]": 7
+            "categories[0]": 3,
+            "categories[1]": 6,
+            "categories[2]": 7
         }
 
         for mode in search_strings:
@@ -116,12 +117,15 @@ class SceneEliteProvider(TorrentProvider):  # pylint: disable=too-many-instance-
                     try:
                         title = torrent.pop("name", "")
                         id = str(torrent.pop("id", ""))
+                        if not id:
+                            continue
                         seeders = try_int(torrent.pop("seeders", ""), 1)
                         leechers = try_int(torrent.pop("leechers", ""), 0)
-                        size = try_int(torrent.pop("size", ""), 0)
-                        download_url = self.urls["download"] + id if id else None
-                        if not download_url:
+                        freeleech = torrent.pop("frileech")
+                        if self.freeleech and freeleech != 1:
                             continue
+                        size = try_int(torrent.pop("size", ""), 0)
+                        download_url = self.urls["download"] + id
                         if seeders < self.minseed or leechers < self.minleech:
                             if mode != 'RSS':
                                 logger.log(u"Torrent doesn't meet minimum seeds & leechers not selecting : {0}".format(title), logger.DEBUG)

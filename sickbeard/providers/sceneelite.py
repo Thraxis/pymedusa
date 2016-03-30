@@ -82,7 +82,6 @@ class SceneEliteProvider(TorrentProvider):  # pylint: disable=too-many-instance-
 
         # Search Params
         search_params = {
-            "searchText": "",
             "extendedSearch": 'false',
             "hideOld": 'false',
             "index": '0',
@@ -103,8 +102,10 @@ class SceneEliteProvider(TorrentProvider):  # pylint: disable=too-many-instance-
                 if mode != "RSS":
                     logger.log("Search string: {0}".format
                                (search_string.decode("utf-8")), logger.DEBUG)
+                    search_params["searchText"] = search_string
+                else: 
+                    search_params["page"] = 'last_seriebrowse'
                 results = []
-                search_params["searchText"] = search_string
                 search_url = self.urls["search"]
                 try:
                     jdata = self.get_url(search_url, params=search_params, returns="json") 

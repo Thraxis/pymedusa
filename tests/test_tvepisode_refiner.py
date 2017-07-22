@@ -1,9 +1,9 @@
 # coding=utf-8
-"""Tests for sickbeard.refiners.tvepisode.py."""
+"""Tests for medusa.refiners.tv_episode.py."""
 
+from medusa.common import DOWNLOADED, Quality
+from medusa.refiners import tv_episode as sut
 import pytest
-from sickbeard.common import DOWNLOADED, Quality
-from sickbeard.refiners import tvepisode as sut
 from subliminal.video import Video
 
 
@@ -11,9 +11,9 @@ from subliminal.video import Video
 def data(create_tvshow, create_tvepisode):
     show_name = 'Enhanced Show Name'
     show_year = 2012
-    tvshow = create_tvshow(indexerid=12, name='{0} ({1})'.format(show_name, show_year), imdbid='tt0000000')
+    tvshow = create_tvshow(indexerid=12, name='{0} ({1})'.format(show_name, show_year), imdb_id='tt0000000')
     tvepisode = create_tvepisode(show=tvshow, indexer=34, season=3, episode=4, name='Episode Title',
-                                 file_size=1122334455, status=Quality.compositeStatus(DOWNLOADED, Quality.FULLHDBLURAY),
+                                 file_size=1122334455, status=Quality.composite_status(DOWNLOADED, Quality.FULLHDBLURAY),
                                  release_group='SuperGroup')
     return {
         'tvshow': tvshow,
@@ -21,7 +21,7 @@ def data(create_tvshow, create_tvepisode):
             'series': show_name,
             'year': show_year,
             'series_tvdb_id': tvshow.tvdb_id,
-            'series_imdb_id': tvshow.imdbid,
+            'series_imdb_id': tvshow.imdb_id,
         },
         'tvepisode': tvepisode,
         'tvepisode_properties': {
@@ -86,6 +86,7 @@ def test_refine__with_tvepisode(data):
     video = data['video']
     tvepisode = data['tvepisode']
     expected = dict(data['tvshow_properties'], **data['tvepisode_properties'])
+    expected.update({'season': video.season, 'episode': video.episode})
 
     # When
     sut.refine(video, tv_episode=tvepisode)
@@ -117,7 +118,8 @@ def test_refine__with_tvepisode_not_overwriting_resolution_format_and_release_gr
     video.release_group = 'AnotherGroup'
     tvepisode = data['tvepisode']
     expected = dict(data['tvshow_properties'], **data['tvepisode_properties'])
-    expected = dict(expected, resolution=video.resolution, format=video.format, release_group=video.release_group)
+    expected = dict(expected, resolution=video.resolution, format=video.format, release_group=video.release_group,
+                    season=video.season, episode=video.episode)
 
     # When
     sut.refine(video, tv_episode=tvepisode)

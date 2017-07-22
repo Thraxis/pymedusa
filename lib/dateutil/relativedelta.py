@@ -2,41 +2,17 @@
 import datetime
 import calendar
 
+import operator
+from math import copysign
+
 from six import integer_types
 from warnings import warn
 
+from ._common import weekday
+
+MO, TU, WE, TH, FR, SA, SU = weekdays = tuple(weekday(x) for x in range(7))
+
 __all__ = ["relativedelta", "MO", "TU", "WE", "TH", "FR", "SA", "SU"]
-
-
-class weekday(object):
-    __slots__ = ["weekday", "n"]
-
-    def __init__(self, weekday, n=None):
-        self.weekday = weekday
-        self.n = n
-
-    def __call__(self, n):
-        if n == self.n:
-            return self
-        else:
-            return self.__class__(self.weekday, n)
-
-    def __eq__(self, other):
-        try:
-            if self.weekday != other.weekday or self.n != other.n:
-                return False
-        except AttributeError:
-            return False
-        return True
-
-    def __repr__(self):
-        s = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")[self.weekday]
-        if not self.n:
-            return s
-        else:
-            return "%s(%+d)" % (s, self.n)
-
-MO, TU, WE, TH, FR, SA, SU = weekdays = tuple([weekday(x) for x in range(7)])
 
 
 class relativedelta(object):
@@ -66,7 +42,7 @@ class relativedelta(object):
             Relative information, may be negative (argument is plural); adding
             or subtracting a relativedelta with relative information performs
             the corresponding aritmetic operation on the original datetime value
-            with the information in the relativedelta.  
+            with the information in the relativedelta.
 
         weekday:
             One of the weekday instances (MO, TU, etc). These instances may
@@ -157,19 +133,28 @@ class relativedelta(object):
             self.microsecond = None
             self._has_time = 0
 
-            months = (dt1.year * 12 + dt1.month) - (dt2.year * 12 + dt2.month)
+            # Get year / month delta between the two
+            months = (dt1.year - dt2.year) * 12 + (dt1.month - dt2.month)
             self._set_months(months)
+
+            # Remove the year/month delta so the timedelta is just well-defined
+            # time units (seconds, days and microseconds)
             dtm = self.__radd__(dt2)
+
+            # If we've overshot our target, make an adjustment
             if dt1 < dt2:
-                while dt1 > dtm:
-                    months += 1
-                    self._set_months(months)
-                    dtm = self.__radd__(dt2)
+                compare = operator.gt
+                increment = 1
             else:
-                while dt1 < dtm:
-                    months -= 1
-                    self._set_months(months)
-                    dtm = self.__radd__(dt2)
+                compare = operator.lt
+                increment = -1
+
+            while compare(dt1, dtm):
+                months += increment
+                self._set_months(months)
+                dtm = self.__radd__(dt2)
+
+            # Get the timedelta between the "months-adjusted" date and dt1
             delta = dt1 - dtm
             self.seconds = delta.seconds + delta.days * 86400
             self.microseconds = delta.microseconds
@@ -193,7 +178,6 @@ class relativedelta(object):
             self.second = second
             self.microsecond = microsecond
 
-                        # Absolute information
             if any(x is not None and int(x) != x
                    for x in (year, month, day, hour,
                              minute, second, microsecond)):
@@ -233,27 +217,27 @@ class relativedelta(object):
 
     def _fix(self):
         if abs(self.microseconds) > 999999:
-            s = self.microseconds // abs(self.microseconds)
+            s = _sign(self.microseconds)
             div, mod = divmod(self.microseconds * s, 1000000)
             self.microseconds = mod * s
             self.seconds += div * s
         if abs(self.seconds) > 59:
-            s = self.seconds // abs(self.seconds)
+            s = _sign(self.seconds)
             div, mod = divmod(self.seconds * s, 60)
             self.seconds = mod * s
             self.minutes += div * s
         if abs(self.minutes) > 59:
-            s = self.minutes//abs(self.minutes)
+            s = _sign(self.minutes)
             div, mod = divmod(self.minutes * s, 60)
             self.minutes = mod * s
             self.hours += div * s
         if abs(self.hours) > 23:
-            s = self.hours//abs(self.hours)
+            s = _sign(self.hours)
             div, mod = divmod(self.hours * s, 24)
             self.hours = mod * s
             self.days += div * s
         if abs(self.months) > 11:
-            s = self.months // abs(self.months)
+            s = _sign(self.months)
             div, mod = divmod(self.months * s, 12)
             self.months = mod * s
             self.years += div * s
@@ -274,10 +258,10 @@ class relativedelta(object):
     def _set_months(self, months):
         self.months = months
         if abs(self.months) > 11:
-            s = self.months//abs(self.months)
-            div, mod = divmod(self.months*s, 12)
-            self.months = mod*s
-            self.years = div*s
+            s = _sign(self.months)
+            div, mod = divmod(self.months * s, 12)
+            self.months = mod * s
+            self.years = div * s
         else:
             self.years = 0
 
@@ -288,16 +272,16 @@ class relativedelta(object):
 
         >>> relativedelta(days=1.5, hours=2).normalized()
         relativedelta(days=1, hours=14)
-        
+
         :return:
             Returns a :class:`dateutil.relativedelta.relativedelta` object.
         """
         # Cascade remainders down (rounding each to roughly nearest microsecond)
         days = int(self.days)
-        
+
         hours_f = round(self.hours + 24 * (self.days - days), 11)
         hours = int(hours_f)
-        
+
         minutes_f = round(self.minutes + 60 * (hours_f - hours), 10)
         minutes = int(minutes_f)
 
@@ -327,17 +311,42 @@ class relativedelta(object):
                                  microseconds=(other.microseconds +
                                                self.microseconds),
                                  leapdays=other.leapdays or self.leapdays,
-                                 year=other.year or self.year,
-                                 month=other.month or self.month,
-                                 day=other.day or self.day,
-                                 weekday=other.weekday or self.weekday,
-                                 hour=other.hour or self.hour,
-                                 minute=other.minute or self.minute,
-                                 second=other.second or self.second,
-                                 microsecond=(other.microsecond or
+                                 year=(other.year if other.year is not None
+                                       else self.year),
+                                 month=(other.month if other.month is not None
+                                        else self.month),
+                                 day=(other.day if other.day is not None
+                                      else self.day),
+                                 weekday=(other.weekday if other.weekday is not None
+                                          else self.weekday),
+                                 hour=(other.hour if other.hour is not None
+                                       else self.hour),
+                                 minute=(other.minute if other.minute is not None
+                                         else self.minute),
+                                 second=(other.second if other.second is not None
+                                         else self.second),
+                                 microsecond=(other.microsecond if other.microsecond
+                                              is not None else
                                               self.microsecond))
+        if isinstance(other, datetime.timedelta):
+            return self.__class__(years=self.years,
+                                  months=self.months,
+                                  days=self.days + other.days,
+                                  hours=self.hours,
+                                  minutes=self.minutes,
+                                  seconds=self.seconds + other.seconds,
+                                  microseconds=self.microseconds + other.microseconds,
+                                  leapdays=self.leapdays,
+                                  year=self.year,
+                                  month=self.month,
+                                  day=self.day,
+                                  weekday=self.weekday,
+                                  hour=self.hour,
+                                  minute=self.minute,
+                                  second=self.second,
+                                  microsecond=self.microsecond)
         if not isinstance(other, datetime.date):
-            raise TypeError("unsupported type for add operation")
+            return NotImplemented
         elif self._has_time and not isinstance(other, datetime.datetime):
             other = datetime.datetime.fromordinal(other.toordinal())
         year = (self.year or other.year)+self.years
@@ -386,7 +395,7 @@ class relativedelta(object):
 
     def __sub__(self, other):
         if not isinstance(other, relativedelta):
-            raise TypeError("unsupported type for sub operation")
+            return NotImplemented   # In case the other object defines __rsub__
         return self.__class__(years=self.years - other.years,
                              months=self.months - other.months,
                              days=self.days - other.days,
@@ -395,14 +404,23 @@ class relativedelta(object):
                              seconds=self.seconds - other.seconds,
                              microseconds=self.microseconds - other.microseconds,
                              leapdays=self.leapdays or other.leapdays,
-                             year=self.year or other.year,
-                             month=self.month or other.month,
-                             day=self.day or other.day,
-                             weekday=self.weekday or other.weekday,
-                             hour=self.hour or other.hour,
-                             minute=self.minute or other.minute,
-                             second=self.second or other.second,
-                             microsecond=self.microsecond or other.microsecond)
+                             year=(self.year if self.year is not None
+                                   else other.year),
+                             month=(self.month if self.month is not None else
+                                    other.month),
+                             day=(self.day if self.day is not None else
+                                  other.day),
+                             weekday=(self.weekday if self.weekday is not None else
+                                      other.weekday),
+                             hour=(self.hour if self.hour is not None else
+                                   other.hour),
+                             minute=(self.minute if self.minute is not None else
+                                     other.minute),
+                             second=(self.second if self.second is not None else
+                                     other.second),
+                             microsecond=(self.microsecond if self.microsecond
+                                          is not None else
+                                          other.microsecond))
 
     def __neg__(self):
         return self.__class__(years=-self.years,
@@ -443,7 +461,11 @@ class relativedelta(object):
     __nonzero__ = __bool__
 
     def __mul__(self, other):
-        f = float(other)
+        try:
+            f = float(other)
+        except TypeError:
+            return NotImplemented
+
         return self.__class__(years=int(self.years * f),
                              months=int(self.months * f),
                              days=int(self.days * f),
@@ -465,7 +487,7 @@ class relativedelta(object):
 
     def __eq__(self, other):
         if not isinstance(other, relativedelta):
-            return False
+            return NotImplemented
         if self.weekday or other.weekday:
             if not self.weekday or not other.weekday:
                 return False
@@ -490,11 +512,18 @@ class relativedelta(object):
                 self.second == other.second and
                 self.microsecond == other.microsecond)
 
+    __hash__ = None
+
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def __div__(self, other):
-        return self.__mul__(1/float(other))
+        try:
+            reciprocal = 1 / float(other)
+        except TypeError:
+            return NotImplemented
+
+        return self.__mul__(reciprocal)
 
     __truediv__ = __div__
 
@@ -512,5 +541,8 @@ class relativedelta(object):
                 l.append("{attr}={value}".format(attr=attr, value=repr(value)))
         return "{classname}({attrs})".format(classname=self.__class__.__name__,
                                              attrs=", ".join(l))
+
+def _sign(x):
+    return int(copysign(1, x))
 
 # vim:ts=4:sw=4:et

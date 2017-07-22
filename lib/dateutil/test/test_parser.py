@@ -7,7 +7,9 @@ from datetime import datetime, timedelta, date
 from dateutil.tz import tzoffset
 from dateutil.parser import *
 
+import six
 from six import assertRaisesRegex, PY3
+from six.moves import StringIO
 
 class ParserTest(unittest.TestCase):
 
@@ -17,18 +19,80 @@ class ParserTest(unittest.TestCase):
         self.default = datetime(2003, 9, 25)
 
         # Parser should be able to handle bytestring and unicode
-        base_str = '2014-05-01 08:00:00'
-        try:
-            # Python 2.x
-            self.uni_str = unicode(base_str)
-            self.str_str = str(base_str)
-        except NameError:
-            self.uni_str = str(base_str)
-            self.str_str = bytes(base_str.encode())
+        self.uni_str = '2014-05-01 08:00:00'
+        self.str_str = self.uni_str.encode()
 
     def testEmptyString(self):
         with self.assertRaises(ValueError):
             parse('')
+
+    def testNone(self):
+        with self.assertRaises(TypeError):
+            parse(None)
+
+    def testInvalidType(self):
+        with self.assertRaises(TypeError):
+            parse(13)
+
+    def testDuckTyping(self):
+        # We want to support arbitrary classes that implement the stream
+        # interface.
+
+        class StringPassThrough(object):
+            def __init__(self, stream):
+                self.stream = stream
+
+            def read(self, *args, **kwargs):
+                return self.stream.read(*args, **kwargs)
+
+
+        dstr = StringPassThrough(StringIO('2014 January 19'))
+
+        self.assertEqual(parse(dstr), datetime(2014, 1, 19))
+
+    def testParseStream(self):
+        dstr = StringIO('2014 January 19')
+
+        self.assertEqual(parse(dstr), datetime(2014, 1, 19))
+
+    def testParseStr(self):
+        self.assertEqual(parse(self.str_str),
+                         parse(self.uni_str))
+
+    def testParserParseStr(self):
+        from dateutil.parser import parser
+
+        self.assertEqual(parser().parse(self.str_str),
+                         parser().parse(self.uni_str))
+
+    def testParseUnicodeWords(self):
+
+        class rus_parserinfo(parserinfo):
+            MONTHS = [("янв", "Январь"),
+                      ("фев", "Февраль"),
+                      ("мар", "Март"),
+                      ("апр", "Апрель"),
+                      ("май", "Май"),
+                      ("июн", "Июнь"),
+                      ("июл", "Июль"),
+                      ("авг", "Август"),
+                      ("сен", "Сентябрь"),
+                      ("окт", "Октябрь"),
+                      ("ноя", "Ноябрь"),
+                      ("дек", "Декабрь")]
+
+        self.assertEqual(parse('10 Сентябрь 2015 10:20',
+                               parserinfo=rus_parserinfo()),
+                         datetime(2015, 9, 10, 10, 20))
+
+    def testParseWithNulls(self):
+        # This relies on the from __future__ import unicode_literals, because
+        # explicitly specifying a unicode literal is a syntax error in Py 3.2
+        # May want to switch to u'...' if we ever drop Python 3.2 support.
+        pstring = '\x00\x00August 29, 1924'
+
+        self.assertEqual(parse(pstring),
+                         datetime(1924, 8, 29))
 
     def testDateCommandFormat(self):
         self.assertEqual(parse("Thu Sep 25 10:36:28 BRST 2003",
@@ -481,13 +545,19 @@ class ParserTest(unittest.TestCase):
                                   tzinfo=self.brsttz))
 
     def testFuzzyWithTokens(self):
-        s = "Today is 25 of September of 2003, exactly " \
+        s1 = "Today is 25 of September of 2003, exactly " \
             "at 10:49:41 with timezone -03:00."
-        self.assertEqual(parse(s, fuzzy_with_tokens=True),
+        self.assertEqual(parse(s1, fuzzy_with_tokens=True),
                          (datetime(2003, 9, 25, 10, 49, 41,
                                    tzinfo=self.brsttz),
                          ('Today is ', 'of ', ', exactly at ',
                           ' with timezone ', '.')))
+
+        s2 = "http://biz.yahoo.com/ipo/p/600221.html"
+        self.assertEqual(parse(s2, fuzzy_with_tokens=True),
+                         (datetime(2060, 2, 21, 0, 0, 0),
+                         ('http://biz.yahoo.com/ipo/p/', '.html')))
+
 
     def testFuzzyAMPMProblem(self):
         # Sometimes fuzzy parsing results in AM/PM flag being set without
@@ -668,11 +738,11 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(parse("April 2009", default=datetime(2010, 1, 31)),
                          datetime(2009, 4, 30))
 
-    def testUnspecifiedDayFallbackFebNoLeapYear(self):        
+    def testUnspecifiedDayFallbackFebNoLeapYear(self):
         self.assertEqual(parse("Feb 2007", default=datetime(2010, 1, 31)),
                          datetime(2007, 2, 28))
 
-    def testUnspecifiedDayFallbackFebLeapYear(self):        
+    def testUnspecifiedDayFallbackFebLeapYear(self):
         self.assertEqual(parse("Feb 2008", default=datetime(2010, 1, 31)),
                          datetime(2008, 2, 29))
 
@@ -738,42 +808,53 @@ class ParserTest(unittest.TestCase):
         dt = myparser.parse("01/Foo/2007")
         self.assertEqual(dt, datetime(2007, 1, 1))
 
-    def testParseStr(self):
-        self.assertEqual(parse(self.str_str),
-                         parse(self.uni_str))
+    def testNoYearFirstNoDayFirst(self):
+        dtstr = '090107'
 
-    def testParserParseStr(self):
-        from dateutil.parser import parser
+        # Should be MMDDYY
+        self.assertEqual(parse(dtstr),
+                         datetime(2007, 9, 1))
 
-        self.assertEqual(parser().parse(self.str_str),
-                         parser().parse(self.uni_str))
+        self.assertEqual(parse(dtstr, yearfirst=False, dayfirst=False),
+                         datetime(2007, 9, 1))
 
-    def testParseUnicodeWords(self):
+    def testYearFirst(self):
+        dtstr = '090107'
 
-        class rus_parserinfo(parserinfo):
-            MONTHS = [("янв", "Январь"),
-                      ("фев", "Февраль"),
-                      ("мар", "Март"),
-                      ("апр", "Апрель"),
-                      ("май", "Май"),
-                      ("июн", "Июнь"),
-                      ("июл", "Июль"),
-                      ("авг", "Август"),
-                      ("сен", "Сентябрь"),
-                      ("окт", "Октябрь"),
-                      ("ноя", "Ноябрь"),
-                      ("дек", "Декабрь")]
+        # Should be MMDDYY
+        self.assertEqual(parse(dtstr, yearfirst=True),
+                         datetime(2009, 1, 7))
 
-        self.assertEqual(parse('10 Сентябрь 2015 10:20',
-                               parserinfo=rus_parserinfo()),
-                         datetime(2015, 9, 10, 10, 20))
+        self.assertEqual(parse(dtstr, yearfirst=True, dayfirst=False),
+                         datetime(2009, 1, 7))
 
-    def testParseWithNulls(self):
-        # This relies on the from __future__ import unicode_literals, because
-        # explicitly specifying a unicode literal is a syntax error in Py 3.2
-        # May want to switch to u'...' if we ever drop Python 3.2 support.
-        pstring = '\x00\x00August 29, 1924'
+    def testDayFirst(self):
+        dtstr = '090107'
 
-        self.assertEqual(parse(pstring),
-                         datetime(1924, 8, 29))
+        # Should be DDMMYY
+        self.assertEqual(parse(dtstr, dayfirst=True),
+                         datetime(2007, 1, 9))
 
+        self.assertEqual(parse(dtstr, yearfirst=False, dayfirst=True),
+                         datetime(2007, 1, 9))
+
+    def testDayFirstYearFirst(self):
+        dtstr = '090107'
+        # Should be YYDDMM
+        self.assertEqual(parse(dtstr, yearfirst=True, dayfirst=True),
+                         datetime(2009, 7, 1))
+
+    def testUnambiguousYearFirst(self):
+        dtstr = '2015 09 25'
+        self.assertEqual(parse(dtstr, yearfirst=True),
+                         datetime(2015, 9, 25))
+
+    def testUnambiguousDayFirst(self):
+        dtstr = '2015 09 25'
+        self.assertEqual(parse(dtstr, dayfirst=True),
+                         datetime(2015, 9, 25))
+
+    def testUnambiguousDayFirstYearFirst(self):
+        dtstr = '2015 09 25'
+        self.assertEqual(parse(dtstr, dayfirst=True, yearfirst=True),
+                         datetime(2015, 9, 25))

@@ -5,9 +5,11 @@
 /data/
 restore/
 backup*/
+backup-*.zip
 cache.db*
 config.ini*
 sickbeard.db*
+main.db.*
 failed.db*
 *.db
 autoProcessTV.cfg
@@ -16,7 +18,7 @@ server.key
 
 #  Medusa Test Related   #
 ######################
-/tests/Logs/
+/tests/legacy/Logs/
 /tests/cache/
 /tests/sickbeard.db*
 /tests/cache.db*
@@ -26,6 +28,8 @@ server.key
 #  Compiled source   #
 ######################
 *.py[cod]
+
+venv
 
 #  IDE specific      #
 ######################
@@ -63,9 +67,10 @@ lib/unrar2/UnRAR.exe
 
 # Grunt #
 ######################
-.build/bower_components
-.build/node_modules
+**/bower_components
+**/node_modules
 .build/dist
+.build/package.json
 
 # Unit test/Coverage #
 ######################

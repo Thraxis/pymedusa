@@ -6,8 +6,10 @@ import datetime
 import os
 
 import guessit
+import medusa.name_parser.guessit_parser as sut
+from medusa import app
 import pytest
-import sickbeard.name_parser.guessit_parser as sut
+from six import binary_type, text_type
 import yaml
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -31,8 +33,13 @@ def show_list(create_tvshow):
         create_tvshow(indexerid=11, name='The 10 Anime Show', anime=1),
         create_tvshow(indexerid=12, name='The 100'),
         create_tvshow(indexerid=13, name='The 123 Show'),
-        create_tvshow(indexerid=14, name=r"The.Someone's.Show.**.2.**"),
+        create_tvshow(indexerid=14, name=r"The Someone's Show 2"),
         create_tvshow(indexerid=15, name='The Show (UK)'),
+        create_tvshow(indexerid=16, name='3 Show på (abc2)'),  # unicode characters, numbers and parenthesis
+        create_tvshow(indexerid=16, name="Show '70s Name"),
+        create_tvshow(indexerid=17, name='An Anime Show 100', anime=1),
+        create_tvshow(indexerid=17, name='Show! Name 2', anime=1),
+        create_tvshow(indexerid=18, name='24'),  # expected titles shouldn't contain numbers
     ]
 
 
@@ -44,25 +51,28 @@ def _format_param(param):
     if isinstance(param, int):
         return param
 
-    return str(param)
+    return text_type(param)
 
 
-def _parameters(files, single_test=None):
+def _parameters(single_test=None):
     parameters = []
-    for file_name in files:
-        with open(os.path.join(__location__, 'datasets', file_name), 'r') as stream:
-            data = yaml.load(stream)
+    input_file = os.path.join(__location__, __name__.split('.')[-1] + '.yml')
+    with open(input_file, 'r') as stream:
+        data = yaml.load(stream)
 
-        for release_names, expected in data.items():
-            expected = {k: v for k, v in expected.items()}
+    for release_names, expected in data.items():
+        expected = {k: v for k, v in expected.items()}
+        for k, v in expected.items():
+            if isinstance(v, binary_type):
+                expected[k] = text_type(v)
 
-            if not isinstance(release_names, tuple):
-                release_names = (release_names,)
+        if not isinstance(release_names, tuple):
+            release_names = (release_names,)
 
-            for release_name in release_names:
-                parameters.append([release_name, expected])
-                if single_test is not None and single_test == release_name:
-                    return [[release_name, expected]]
+        for release_name in release_names:
+            parameters.append([release_name, expected])
+            if single_test is not None and single_test == release_name:
+                return [[release_name, expected]]
 
     return parameters
 
@@ -71,10 +81,10 @@ def test_pre_configured_guessit():
     assert sut.guessit == guessit.guessit
 
 
-@pytest.mark.parametrize('release_name,expected', _parameters(['tvshows.yml']))
+@pytest.mark.parametrize('release_name,expected', _parameters())
 def test_guess(monkeypatch, show_list, release_name, expected):
     # Given
-    monkeypatch.setattr('sickbeard.showList', show_list)
+    monkeypatch.setattr(app, 'showList', show_list)
     options = expected.pop('options', {})
 
     # When
@@ -84,6 +94,14 @@ def test_guess(monkeypatch, show_list, release_name, expected):
     actual = {k: _format_param(v) for k, v in actual.items()}
     expected['release_name'] = release_name
     actual['release_name'] = release_name
+
+    # mimetypes are not consistent therefore they are not compared
+    if 'mimetype' in expected:
+        del expected['mimetype']
+    if 'mimetype' in actual:
+        del actual['mimetype']
+
+    del actual['parsing_time']
 
     if not expected.get('disabled'):
         assert expected == actual
